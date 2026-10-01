@@ -1,0 +1,111 @@
+/**
+ * ORTSZEICHEN Marketing Frontend Styles: Subtle Social Proof Toast.
+ *
+ * Editorial design harmony: Ink (#111A1E), Paper (#F5F0E7), Moss (#5F6F65).
+ * WCAG 2.2 AA compliant contrast, zero layout shifts, reduced-motion friendly.
+ */
+
+.oz-social-proof-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 9990;
+  max-width: 380px;
+  width: calc(100vw - 48px);
+  background: #F5F0E7;
+  color: #111A1E;
+  border: 1px solid rgba(17, 26, 30, 0.12);
+  border-radius: 4px;
+  box-shadow: 0 4px 20px rgba(17, 26, 30, 0.08), 0 1px 3px rgba(17, 26, 30, 0.04);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+  transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.oz-social-proof-toast.oz-toast-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.oz-social-proof-toast.oz-toast-hidden {
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+}
+
+.oz-social-proof-inner {
+  display: flex;
+  align-items: flex-start;
+  padding: 14px 16px;
+  gap: 12px;
+}
+
+.oz-social-proof-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5F6F65; /* Moss green pulse */
+  flex-shrink: 0;
+  margin-top: 5px;
+  box-shadow: 0 0 0 2px rgba(95, 111, 101, 0.2);
+}
+
+.oz-social-proof-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.oz-social-proof-msg {
+  margin: 0 0 4px 0;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  font-weight: 500;
+  color: #111A1E;
+}
+
+.oz-social-proof-meta {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: #5F6F65;
+  letter-spacing: 0.02em;
+}
+
+.oz-social-proof-close {
+  background: transparent;
+  border: none;
+  color: #5F6F65;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  margin: -2px -4px 0 0;
+  transition: color 0.15s ease;
+  font-family: inherit;
+}
+
+.oz-social-proof-close:hover,
+.oz-social-proof-close:focus-visible {
+  color: #111A1E;
+  outline: 2px solid #C96D4A;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (max-width: 480px) {
+  .oz-social-proof-toast {
+    bottom: 16px;
+    left: 16px;
+    width: calc(100vw - 32px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oz-social-proof-toast {
+    transition: opacity 0.15s ease;
+    transform: none !important;
+  }
+}
