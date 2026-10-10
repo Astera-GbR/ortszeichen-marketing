@@ -70,17 +70,7 @@ class Abandoned_Cart {
 				}
 			}
 
-			// Fallback session hash if WC session not established yet
-			if ( empty( $session_hash ) ) {
-				$raw_ip      = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-				$clean_ip    = function_exists( 'wp_unslash' ) ? wp_unslash( $raw_ip ) : $raw_ip;
-				$remote_ip   = sanitize_text_field( $clean_ip );
-				$raw_ua      = $_SERVER['HTTP_USER_AGENT'] ?? 'cli';
-				$clean_ua    = function_exists( 'wp_unslash' ) ? wp_unslash( $raw_ua ) : $raw_ua;
-				$user_agent  = sanitize_text_field( $clean_ua );
-				$cart_items_hash = md5( wp_json_encode( array_keys( WC()->cart->get_cart() ) ) );
-				$session_hash = md5( $remote_ip . '|' . $user_agent . '|' . $cart_items_hash );
-			}
+			if ( empty( $session_hash ) ) { return; }
 
 			$cart_items = array();
 			foreach ( WC()->cart->get_cart() as $cart_item_key => $item ) {
@@ -121,7 +111,7 @@ class Abandoned_Cart {
 		} catch ( \Throwable $e ) {
 			// Fail-safe: marketing tracking failure must never block customer cart or checkout
 			if ( function_exists( 'error_log' ) ) {
-				error_log( 'ORTSZEICHEN Marketing: Failed to track cart: ' . $e->getMessage() );
+				error_log( 'ORTSZEICHEN Marketing: Failed to track cart.' );
 			}
 		}
 	}
@@ -136,6 +126,8 @@ class Abandoned_Cart {
 	 * @return int Created or updated post ID
 	 */
 	public static function track_cart( string $session_hash, array $cart_items, float $total, string $email = '' ): int {
+		// Explicit session consent is required for marketing storage; never infer it from checkout.
+		if ( ! function_exists( 'WC' ) || ! WC() || ! WC()->session || 'yes' !== WC()->session->get( 'oz_cart_marketing_consent' ) ) { return 0; }
 		if ( empty( $session_hash ) || empty( $cart_items ) ) {
 			return 0;
 		}

@@ -95,6 +95,7 @@ register_deactivation_hook(
 			as_unschedule_all_actions( Abandoned_Cart::ACTION_PURGE, array(), 'ortszeichen-marketing' );
 		}
 
+		wp_clear_scheduled_hook( 'oz_newsletter_pending_cleanup' );
 		wp_clear_scheduled_hook( Abandoned_Cart::ACTION_CHECK );
 		wp_clear_scheduled_hook( Abandoned_Cart::ACTION_PURGE );
 
