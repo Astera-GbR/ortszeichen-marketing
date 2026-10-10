@@ -28,6 +28,8 @@ class Newsletter {
 	public static function boot(): void {
 		add_action( 'rest_api_init', array( __CLASS__, 'register_rest_routes' ) );
 		add_action( 'init', array( __CLASS__, 'maybe_handle_doi_confirmation' ) );
+		add_action( 'init', array( __CLASS__, 'schedule_cleanup' ) );
+		add_action( 'oz_newsletter_pending_cleanup', array( __CLASS__, 'purge_pending' ) );
 	}
 
 	/**
@@ -151,11 +153,13 @@ class Newsletter {
 			? wp_generate_password( 32, false )
 			: bin2hex( random_bytes( 16 ) );
 
+		$unsubscribe_token = bin2hex( random_bytes( 24 ) );
 		$record = array(
 			'email'         => $clean_email,
 			'first_name'    => sanitize_text_field( $first_name ),
 			'status'        => 'pending_doi',
 			'token_hash'    => hash( 'sha256', $token ),
+			'unsubscribe_hash' => hash( 'sha256', $unsubscribe_token ),
 			'expires_at'    => time() + 86400,
 			'registered_at' => time(),
 			'registered_ip' => self::anonymize_ip( $client_ip ),
@@ -172,7 +176,7 @@ class Newsletter {
 		update_option( self::OPTION_SUBSCRIBERS, $subscribers );
 
 		// Dispatch Double Opt-In Email
-		if ( ! self::send_doi_email( $clean_email, $token, $first_name ) ) {
+		if ( ! self::send_doi_email( $clean_email, $token, $first_name, $unsubscribe_token ) ) {
 			unset( $subscribers[ $email_hash ] );
 			update_option( self::OPTION_SUBSCRIBERS, $subscribers );
 			return new \WP_Error( 'doi_delivery_failed', 'Best�tigungsnachricht konnte nicht versendet werden.', array( 'status' => 503 ) );
@@ -222,6 +226,11 @@ class Newsletter {
 	 * Catch Double Opt-In verification link in request.
 	 */
 	public static function maybe_handle_doi_confirmation(): void {
+		if ( isset( $_GET['oz_action'] ) && 'unsubscribe_newsletter' === $_GET['oz_action'] && ! empty( $_GET['token'] ) && is_string( $_GET['token'] ) ) {
+			$success = self::unsubscribe( sanitize_text_field( wp_unslash( $_GET['token'] ) ) );
+			wp_safe_redirect( add_query_arg( array( 'oz_newsletter_unsubscribed' => $success ? '1' : '0' ), home_url( '/' ) ) );
+			exit;
+		}
 		if ( isset( $_GET['oz_action'] ) && 'confirm_newsletter' === $_GET['oz_action'] && ! empty( $_GET['token'] ) ) {
 			$raw_token = function_exists( 'wp_unslash' ) ? wp_unslash( $_GET['token'] ) : $_GET['token'];
 			$token     = sanitize_text_field( $raw_token );
@@ -245,7 +254,7 @@ class Newsletter {
 	 * @param string $first_name Optional first name
 	 * @return bool
 	 */
-	public static function send_doi_email( string $to_email, string $token, string $first_name = '' ): bool {
+	public static function send_doi_email( string $to_email, string $token, string $first_name = '', string $unsubscribe_token = '' ): bool {
 		$confirm_url = add_query_arg(
 			array(
 				'oz_action' => 'confirm_newsletter',
@@ -263,6 +272,8 @@ class Newsletter {
 		$message .= "Falls Sie sich nicht angemeldet haben, können Sie diese E-Mail ignorieren. Es werden keine weiteren Nachrichten versendet.\n\n";
 		$message .= "Herzliche Grüße,\nIhr ORTSZEICHEN Team\n";
 
+		$unsubscribe_url = add_query_arg( array( 'oz_action' => 'unsubscribe_newsletter', 'token' => $unsubscribe_token ), home_url( '/' ) );
+		$message .= "Anmeldung widerrufen oder abmelden: {$unsubscribe_url}\n";
 		$headers = array( 'Content-Type: text/plain; charset=UTF-8' );
 
 		if ( function_exists( 'wp_mail' ) ) {
@@ -270,6 +281,37 @@ class Newsletter {
 		}
 
 		return false;
+	}
+
+	/** Remove the record; token is purpose-specific and does not expose email. */
+	public static function unsubscribe( string $token ): bool {
+		if ( strlen( $token ) !== 48 || ! ctype_xdigit( $token ) ) { return false; }
+		$records = get_option( self::OPTION_SUBSCRIBERS, array() );
+		if ( ! is_array( $records ) ) { return false; }
+		foreach ( $records as $key => $record ) {
+			if ( hash_equals( (string) ( $record['unsubscribe_hash'] ?? '' ), hash( 'sha256', $token ) ) ) {
+				unset( $records[$key] );
+				update_option( self::OPTION_SUBSCRIBERS, $records );
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public static function schedule_cleanup(): void {
+		if ( ! wp_next_scheduled( 'oz_newsletter_pending_cleanup' ) ) { wp_schedule_event( time() + 3600, 'daily', 'oz_newsletter_pending_cleanup' ); }
+	}
+
+	/** Delete expired and legacy pending records without waiting for another signup. */
+	public static function purge_pending(): int {
+		$records = get_option( self::OPTION_SUBSCRIBERS, array() );
+		if ( ! is_array( $records ) ) { return 0; }
+		$count = 0;
+		foreach ( $records as $key => $record ) {
+			if ( 'pending_doi' === ( $record['status'] ?? '' ) && ( $record['expires_at'] ?? 0 ) < time() ) { unset( $records[$key] ); ++$count; }
+		}
+		if ( $count ) { update_option( self::OPTION_SUBSCRIBERS, $records ); }
+		return $count;
 	}
 
 	/**
