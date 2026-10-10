@@ -102,7 +102,7 @@ class Newsletter {
 		}
 
 		// Register subscriber and generate DOI token
-		$result = self::register_subscriber( $email, $first_name, $client_ip );
+		$result = self::register_subscriber( $email, $first_name, $client_ip, true );
 
 		if ( is_wp_error( $result ) ) {
 			return $result;
@@ -125,7 +125,8 @@ class Newsletter {
 	 * @param string $client_ip  Client IP address
 	 * @return array|\WP_Error
 	 */
-	public static function register_subscriber( string $email, string $first_name = '', string $client_ip = '' ) {
+	public static function register_subscriber( string $email, string $first_name = '', string $client_ip = '', bool $consent = false ) {
+		if ( ! $consent ) { return new \WP_Error( 'consent_required', 'Ausdrückliche Einwilligung erforderlich.', array( 'status' => 400 ) ); }
 		$clean_email = sanitize_email( strtolower( trim( $email ) ) );
 		if ( empty( $clean_email ) || ! is_email( $clean_email ) ) {
 			return new \WP_Error( 'invalid_email', 'UngÃ¼ltige E-Mail-Adresse.', array( 'status' => 400 ) );
@@ -140,7 +141,7 @@ class Newsletter {
 		// If already confirmed, notify gently without leaking
 		if ( isset( $subscribers[ $email_hash ] ) && 'confirmed' === $subscribers[ $email_hash ]['status'] ) {
 			return array(
-				'status'  => 'already_confirmed',
+				'status'  => 'pending_doi',
 				'message' => 'Diese E-Mail-Adresse ist bereits fÃ¼r den Newsletter angemeldet.',
 			);
 		}
@@ -154,7 +155,8 @@ class Newsletter {
 			'email'         => $clean_email,
 			'first_name'    => sanitize_text_field( $first_name ),
 			'status'        => 'pending_doi',
-			'token'         => $token,
+			'token_hash'    => hash( 'sha256', $token ),
+			'expires_at'    => time() + 86400,
 			'registered_at' => time(),
 			'registered_ip' => self::anonymize_ip( $client_ip ),
 			'consent_given' => true,
@@ -163,11 +165,18 @@ class Newsletter {
 			'confirmed_ip'  => null,
 		);
 
+		foreach ( $subscribers as $key => $entry ) {
+			if ( 'pending_doi' === ( $entry['status'] ?? '' ) && ( $entry['expires_at'] ?? 0 ) < time() ) { unset( $subscribers[$key] ); }
+		}
 		$subscribers[ $email_hash ] = $record;
 		update_option( self::OPTION_SUBSCRIBERS, $subscribers );
 
 		// Dispatch Double Opt-In Email
-		self::send_doi_email( $clean_email, $token, $first_name );
+		if ( ! self::send_doi_email( $clean_email, $token, $first_name ) ) {
+			unset( $subscribers[ $email_hash ] );
+			update_option( self::OPTION_SUBSCRIBERS, $subscribers );
+			return new \WP_Error( 'doi_delivery_failed', 'Bestätigungsnachricht konnte nicht versendet werden.', array( 'status' => 503 ) );
+		}
 
 		return array(
 			'status'  => 'pending_doi',
@@ -192,7 +201,8 @@ class Newsletter {
 		}
 
 		foreach ( $subscribers as $hash => $record ) {
-			if ( hash_equals( (string) ( $record['token'] ?? '' ), (string) $token ) ) {
+			if ( 'pending_doi' === ( $record['status'] ?? '' ) && ( $record['expires_at'] ?? 0 ) >= time() && hash_equals( (string) ( $record['token_hash'] ?? '' ), hash( 'sha256', $token ) ) ) {
+				unset( $subscribers[ $hash ]['token_hash'], $subscribers[ $hash ]['token'] );
 				$subscribers[ $hash ]['status']       = 'confirmed';
 				$subscribers[ $hash ]['confirmed_at'] = time();
 				$subscribers[ $hash ]['confirmed_ip'] = self::anonymize_ip( self::get_client_ip() );
@@ -259,7 +269,7 @@ class Newsletter {
 			return wp_mail( $to_email, $subject, $message, $headers );
 		}
 
-		return true;
+		return false;
 	}
 
 	/**

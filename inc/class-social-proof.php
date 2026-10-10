@@ -5,7 +5,7 @@
  * Compliant with UWG § 5b and DSGVO data minimization:
  * - Aggregates only authentic completed/processing WooCommerce orders.
  * - Strictly strips all PII (names, street addresses, order numbers).
- * - Formats notification: "Jemand aus [Stadt] hat ein Format [Format] bestellt".
+ * - Formats notification: "Ein Motiv aus [Stadt] hat ein Format [Format] bestellt".
  * - Caches in transient for 1800 seconds to eliminate database overhead.
  * - REST API endpoint: GET /wp-json/ortszeichen-marketing/v1/social-proof
  *
@@ -72,6 +72,7 @@ class Social_Proof {
 	 * @return array Array of anonymized social proof items
 	 */
 	public static function get_social_proof_data( bool $force_refresh = false ): array {
+		if ( 'yes' !== get_option( 'oz_social_proof_operator_approved', 'no' ) ) { return array(); }
 		if ( ! $force_refresh ) {
 			$cached = get_transient( self::TRANSIENT_KEY );
 			if ( false !== $cached && is_array( $cached ) ) {
@@ -104,19 +105,12 @@ class Social_Proof {
 					continue;
 				}
 
-				// Extract city from shipping or billing, or fallback
+				// Show the product city only; never disclose customer address data.
 				$city = '';
-				if ( method_exists( $order, 'get_shipping_city' ) ) {
-					$city = trim( (string) $order->get_shipping_city() );
-				}
-				if ( empty( $city ) && method_exists( $order, 'get_billing_city' ) ) {
-					$city = trim( (string) $order->get_billing_city() );
-				}
-
 				// Extract items
 				$order_items = method_exists( $order, 'get_items' ) ? $order->get_items() : array();
 				$product_title = 'Stadtposter';
-				$format        = '50x70';
+				$format        = '';
 
 				foreach ( $order_items as $order_item ) {
 					if ( ! is_object( $order_item ) ) {
@@ -154,9 +148,7 @@ class Social_Proof {
 					break;
 				}
 
-				if ( empty( $city ) ) {
-					$city = 'Deutschland';
-				}
+				if ( empty( $city ) || empty( $format ) ) { continue; }
 
 				// Sanitize city and format against XSS
 				$city   = htmlspecialchars( $city, ENT_QUOTES, 'UTF-8' );
@@ -178,7 +170,7 @@ class Social_Proof {
 				}
 
 				// Standardized message per specification
-				$message = sprintf( 'Jemand aus %s hat ein Format %s bestellt', $city, $format );
+				$message = sprintf( 'Ein Motiv aus %s wurde im Format %s bestellt', $city, $format );
 
 				$items[] = array(
 					'city'      => $city,
@@ -188,17 +180,6 @@ class Social_Proof {
 					'time_ago'  => $time_ago,
 					'timestamp' => $timestamp,
 				);
-			}
-		}
-
-		// Honest fallback if fewer than 3 authentic orders exist (avoids fabricated slop)
-		if ( count( $items ) < 3 ) {
-			$fallbacks = self::get_authentic_store_facts();
-			foreach ( $fallbacks as $fact ) {
-				$items[] = $fact;
-				if ( count( $items ) >= 3 ) {
-					break;
-				}
 			}
 		}
 
@@ -214,32 +195,7 @@ class Social_Proof {
 	 * @return array
 	 */
 	public static function get_authentic_store_facts(): array {
-		return array(
-			array(
-				'city'      => 'Deutschlandweit',
-				'format'    => 'Alle Formate',
-				'product'   => 'Archiv-Kunstdrucke',
-				'message'   => 'Über 20 deutsche Partnerstädte im Sortiment',
-				'time_ago'  => 'Immer aktuell',
-				'timestamp' => time(),
-			),
-			array(
-				'city'      => 'Museumsqualität',
-				'format'    => '250 g/m²',
-				'product'   => 'Hahnemühle Papier',
-				'message'   => '12-Farb-Pigmentdruck auf 250 g/m² Museumspapier',
-				'time_ago'  => 'Garantie',
-				'timestamp' => time() - 3600,
-			),
-			array(
-				'city'      => 'Klimaneutral',
-				'format'    => 'Knickfest verpackt',
-				'product'   => 'DHL GoGreen',
-				'message'   => 'Klimaneutraler Versand mit DHL GoGreen',
-				'time_ago'  => 'Standard',
-				'timestamp' => time() - 7200,
-			),
-		);
+		return array(); // No unverified paper, manufacturer or shipping claims.
 	}
 
 	/**
